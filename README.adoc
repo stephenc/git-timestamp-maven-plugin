@@ -1,0 +1,73 @@
+== Git Timestamp Maven Plugin
+
+Experimental plugin to assist with applying continuous delivery to Maven based projects.
+
+If you are following the type of release pattern described in https://www.cloudbees.com/blog/new-way-do-continuous-delivery-maven-and-jenkins-pipeline[this blog post] you may need a way to assign "version numbers" for the developer local builds.
+
+This plugin will infer a timestamp from the state of the git repository.
+The timestamp will have two parts:
+
+* The time of the most recently modified tracked file in the workspace.
+* The number of commits on the current branch.
+
+The timestamp can then be injected into a system property (for use in filtering resources)
+and/or can be writted to a file.
+
+Additionally, the timestamp can be substituted into the project version.
+By default release versions will be left alone, but `-SNAPSHOT` versions will have the `-SNAPSHOT` replaced by the timestamp.
+The modified version can then be injected into a system property (for use in filtering resources) and/or can be writted to a file.
+
+For example, the configuration:
+
+[source,xml]
+----
+<project ...>
+  ...
+  <version>1.x-SNAPSHOT</version>
+  ...
+  <build>
+    ...
+    <plugins>
+      ...
+      <plugin>
+        ...
+        <artifactId>maven-release-plugin</artifactId>
+        ...
+        <configuration>
+          <localCheckout>true</localCheckout>
+          <pushChanges>false</pushChanges>
+          <releaseVersion>1.${env.BUILD_NUMBER}</releaseVersion>
+          <developmentVersion>1.x-SNAPSHOT</developmentVersion>
+        </configuration>
+      </plugin>
+      ...
+      <plugin>
+        <groupId>com.github.stephenc.continuous</groupId>
+        <artifactId>git-timestamp-maven-plugin</artifactId>
+        ...
+        <executions>
+          <execution>
+            <goals>
+              <goal>timestamp</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <versionFile>${project.build.outputDirectory}/version.txt</versionFile>
+        </configuration>
+      </plugin>
+      ...
+    </plugins>
+    ...
+  </build>
+  ...
+</project>
+----
+
+Will populate the `version.txt` file with a version like `1.x-20180220.191333-54` for developer builds.
+
+When the release is done on the CI server (which defines the environment variable `BUILD_NUMBER` then the `version.txt` file will be populated with a version like `1.67`
+
+This way, developer build will have a version number in the `version.txt` that is reflective of their local changes and will increase as they make newer modifications.
+
+Additionally, release versions will always be seen as newer than developer builds (because `1.x` is less than `1.1` using Maven's version number comparison rules).
