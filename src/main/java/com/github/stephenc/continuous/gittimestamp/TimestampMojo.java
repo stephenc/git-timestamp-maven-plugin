@@ -148,6 +148,7 @@ public class TimestampMojo extends AbstractMojo {
 
             // now get the last modified timestamp
             final long[] lastModified = new long[1];
+            lastModified[0] = project.getFile().lastModified();
             Commandline cl = GitCommandLineUtils.getBaseGitCommandLine(basedir, "ls-files");
             CommandLineUtils.StringStreamConsumer stderr = new CommandLineUtils.StringStreamConsumer();
             GitCommandLineUtils.execute(cl, new StreamConsumer() {
