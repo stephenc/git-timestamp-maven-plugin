@@ -35,7 +35,6 @@ import org.apache.maven.scm.ScmException;
 import org.apache.maven.scm.ScmFile;
 import org.apache.maven.scm.ScmFileSet;
 import org.apache.maven.scm.command.status.StatusScmResult;
-import org.apache.maven.scm.log.ScmLogger;
 import org.apache.maven.scm.manager.NoSuchScmProviderException;
 import org.apache.maven.scm.manager.ScmManager;
 import org.apache.maven.scm.provider.ScmProvider;
@@ -156,7 +155,7 @@ public class TimestampMojo extends AbstractMojo {
                 public void consumeLine(String s) {
                     lastModified[0] = Math.max(lastModified[0], new File(basedir, s).lastModified());
                 }
-            }, new CommandLineUtils.StringStreamConsumer(), new ScmLoggerImpl());
+            }, new CommandLineUtils.StringStreamConsumer(), new ScmLoggerImpl(this));
             StatusScmResult status = provider.status(repository, new ScmFileSet(basedir));
             for (ScmFile f: status.getChangedFiles()) {
                 lastModified[0] = Math.max(lastModified[0], new File(basedir, f.getPath()).lastModified());
@@ -167,7 +166,7 @@ public class TimestampMojo extends AbstractMojo {
             cl.createArg().setValue("--count");
             cl.createArg().setValue("HEAD");
             CommandLineUtils.StringStreamConsumer countOutput = new CommandLineUtils.StringStreamConsumer();
-            GitCommandLineUtils.execute(cl, countOutput, stderr, new ScmLoggerImpl());
+            GitCommandLineUtils.execute(cl, countOutput, stderr, new ScmLoggerImpl(this));
             long count;
             try {
                 count = Long.parseLong(StringUtils.defaultIfBlank(countOutput.getOutput().trim(), "0"));
@@ -220,87 +219,4 @@ public class TimestampMojo extends AbstractMojo {
 
     }
 
-    private class ScmLoggerImpl implements ScmLogger {
-
-        @Override
-        public boolean isDebugEnabled() {
-            return getLog().isDebugEnabled();
-        }
-
-        @Override
-        public void debug(String content) {
-            getLog().debug(content);
-        }
-
-        @Override
-        public void debug(String content, Throwable error) {
-            getLog().debug(content, error);
-        }
-
-        @Override
-        public void debug(Throwable error) {
-            getLog().debug(error);
-        }
-
-        @Override
-        public boolean isInfoEnabled() {
-            return getLog().isInfoEnabled();
-        }
-
-        @Override
-        public void info(String content) {
-            getLog().info(content);
-        }
-
-        @Override
-        public void info(String content, Throwable error) {
-            getLog().info(content, error);
-        }
-
-        @Override
-        public void info(Throwable error) {
-            getLog().info(error);
-        }
-
-        @Override
-        public boolean isWarnEnabled() {
-            return getLog().isWarnEnabled();
-        }
-
-        @Override
-        public void warn(String content) {
-            getLog().warn(content);
-        }
-
-        @Override
-        public void warn(String content, Throwable error) {
-            getLog().warn(content, error);
-        }
-
-        @Override
-        public void warn(Throwable error) {
-            getLog().warn(error);
-        }
-
-        @Override
-        public boolean isErrorEnabled() {
-            return getLog().isErrorEnabled();
-        }
-
-        @Override
-        public void error(String content) {
-            getLog().error(content);
-        }
-
-        @Override
-        public void error(String content, Throwable error) {
-            getLog().error(content, error);
-        }
-
-        @Override
-        public void error(Throwable error) {
-            getLog().error(error);
-        }
-
-    }
 }
