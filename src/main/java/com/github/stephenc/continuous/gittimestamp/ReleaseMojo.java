@@ -50,6 +50,7 @@ public class ReleaseMojo extends AbstractMojo {
     private static final Pattern SNAPSHOT_PATTERN = Pattern.compile(
             "^(.*-)?((?:SNAPSHOT)|(?:\\d{4}[0-1]\\d[0-3]\\d\\.[0-2]\\d[0-6]\\d[0-6]\\d-\\d+))$"
     );
+    private static final String REFS_TAGS = "refs/tags/";
     /**
      * The name of the property to populate with the release version.
      */
@@ -149,7 +150,15 @@ public class ReleaseMojo extends AbstractMojo {
                 public void consumeLine(String line) {
                     line.trim();
                     if (!line.isEmpty()) {
-                        tags.add(line);
+                        int index = line.indexOf(REFS_TAGS);
+                        if (index != -1 && line.matches("[0-9a-fA-F]{40}\\w+refs/tags/")) {
+                            if (line.endsWith("{}")) {
+                                line = line.substring(0, line.length() - 2);
+                            }
+                            tags.add(line.substring(index + REFS_TAGS.length()));
+                        } else {
+                            tags.add(line);
+                        }
                     }
                 }
             };
