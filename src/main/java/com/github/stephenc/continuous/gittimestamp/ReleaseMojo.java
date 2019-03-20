@@ -83,8 +83,8 @@ public class ReleaseMojo extends AbstractMojo {
     /**
      * If defined, the name of the file to populate with the project version followed by a newline.
      */
-    @Parameter
-    private File versionFile;
+    @Parameter(property = "releaseVersionFile")
+    private File releaseVersionFile;
 
     @Parameter(defaultValue = "${project.scm.developerConnection}", readonly = true)
     private String scmDeveloperUrl;
@@ -218,10 +218,10 @@ public class ReleaseMojo extends AbstractMojo {
                 getLog().info("Setting property '" + developmentProperty + "' to '" + project.getVersion() + "'");
                 project.getProperties().setProperty(developmentProperty, project.getVersion());
             }
-            if (versionFile != null) {
-                versionFile.getParentFile().mkdirs();
-                getLog().info("Writing '" + version + "' to " + versionFile);
-                FileUtils.write(versionFile, version + "\n", encoding);
+            if (releaseVersionFile != null) {
+                releaseVersionFile.getParentFile().mkdirs();
+                getLog().info("Writing '" + version + "' to " + releaseVersionFile);
+                FileUtils.write(releaseVersionFile, version + "\n", encoding);
             }
         } catch (NoSuchScmProviderException e) {
             throw new MojoFailureException("Unknown SCM URL: " + scmUrl, e);

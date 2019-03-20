@@ -71,3 +71,53 @@ When the release is done on the CI server (which defines the environment variabl
 This way, developer build will have a version number in the `version.txt` that is reflective of their local changes and will increase as they make newer modifications.
 
 Additionally, release versions will always be seen as newer than developer builds (because `1.x` is less than `1.1` using Maven's version number comparison rules).
+
+== Release assistance
+
+This plugin can also assist the Apache Maven Release plugin.
+For example:
+
+For example, the configuration:
+
+[source,xml]
+----
+<project ...>
+  ...
+  <version>1.x-SNAPSHOT</version>
+  ...
+  <build>
+    ...
+    <plugins>
+      ...
+      <plugin>
+        ...
+        <artifactId>maven-release-plugin</artifactId>
+        ...
+        <configuration>
+          <localCheckout>true</localCheckout>
+          <pushChanges>false</pushChanges>
+        </configuration>
+      </plugin>
+      ...
+      <plugin>
+        <groupId>com.github.stephenc.continuous</groupId>
+        <artifactId>git-timestamp-maven-plugin</artifactId>
+        ...
+        <configuration>
+          <snapshotText>x-SNAPSHOT</snapshotText>
+        </configuration>
+      </plugin>
+      ...
+    </plugins>
+    ...
+  </build>
+  ...
+</project>
+----
+
+Will enable automatic version detection based on the current remote tags and the number of commits when Maven is invoked like so:
+
+[source,bash]
+----
+mvn git-timestamp:release release:prepare release:perform
+----
