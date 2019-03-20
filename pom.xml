@@ -297,7 +297,7 @@
       <plugin>
         <groupId>com.github.stephenc.continuous</groupId>
         <artifactId>git-timestamp-maven-plugin</artifactId>
-        <version>1.3</version>
+        <version>1.16</version>
         <configuration>
           <snapshotText>x-SNAPSHOT</snapshotText>
         </configuration>
