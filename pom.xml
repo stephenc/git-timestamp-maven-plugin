@@ -25,7 +25,7 @@
 
   <groupId>com.github.stephenc.continuous</groupId>
   <artifactId>git-timestamp-maven-plugin</artifactId>
-  <version>1.x-SNAPSHOT</version>
+  <version>1.16</version>
   <packaging>maven-plugin</packaging>
 
   <name>Git Timestamp Maven Plugin</name>
@@ -57,7 +57,7 @@
     <connection>scm:git:git://github.com/stephenc/git-timestamp-maven-plugin.git</connection>
     <developerConnection>scm:git:git@github.com:stephenc/git-timestamp-maven-plugin.git</developerConnection>
     <url>http://github.com/stephenc/git-timestamp-maven-plugin/tree/master/</url>
-    <tag>HEAD</tag>
+    <tag>git-timestamp-maven-plugin-1.16</tag>
   </scm>
   <issueManagement>
     <system>github</system>
