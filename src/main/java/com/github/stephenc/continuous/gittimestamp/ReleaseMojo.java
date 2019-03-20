@@ -1,12 +1,14 @@
 package com.github.stephenc.continuous.gittimestamp;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -78,9 +80,19 @@ public class ReleaseMojo extends AbstractMojo {
      */
     @Parameter(defaultValue = "@{project.artifactId}-@{project.version}", property = "tagNameFormat")
     private String tagNameFormat;
+    /**
+     * If defined, the name of the file to populate with the project version followed by a newline.
+     */
+    @Parameter
+    private File versionFile;
 
     @Parameter(defaultValue = "${project.scm.developerConnection}", readonly = true)
     private String scmDeveloperUrl;
+    /**
+     * The character encoding scheme to be applied when writing files.
+     */
+    @Parameter(defaultValue = "${project.build.outputEncoding}")
+    protected String encoding;
     @Parameter(defaultValue = "${basedir}", readonly = true)
     private File basedir;
     @Component
@@ -206,9 +218,14 @@ public class ReleaseMojo extends AbstractMojo {
                 getLog().info("Setting property '" + developmentProperty + "' to '" + project.getVersion() + "'");
                 project.getProperties().setProperty(developmentProperty, project.getVersion());
             }
+            if (versionFile != null) {
+                versionFile.getParentFile().mkdirs();
+                getLog().info("Writing '" + version + "' to " + versionFile);
+                FileUtils.write(versionFile, version + "\n", encoding);
+            }
         } catch (NoSuchScmProviderException e) {
             throw new MojoFailureException("Unknown SCM URL: " + scmUrl, e);
-        } catch (ScmException e) {
+        } catch (ScmException | IOException e) {
             throw new MojoExecutionException(e.getMessage(), e);
         }
 
