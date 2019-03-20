@@ -155,7 +155,12 @@ public class ReleaseMojo extends AbstractMojo {
             };
             GitCommandLineUtils.execute(cl, consumer, stderr, new ScmLoggerImpl(this));
 
-            final String baseVersion = project.getVersion().replace(snapshotText, Long.toString(count));
+            String bareVersion = StringUtils.removeEnd(project.getVersion(), snapshotText);
+            if (!bareVersion.endsWith(".") && !bareVersion.endsWith("-")) {
+                // insert a separator if none present
+                bareVersion = bareVersion + ".";
+            }
+            final String baseVersion = bareVersion + count;
             Iterator<String> suggestedVersion = new Iterator<String>() {
 
                 private long patch;
