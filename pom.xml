@@ -297,7 +297,7 @@
       <plugin>
         <groupId>com.github.stephenc.continuous</groupId>
         <artifactId>git-timestamp-maven-plugin</artifactId>
-        <version>1.26</version>
+        <version>1.29</version>
         <configuration>
           <snapshotText>x-SNAPSHOT</snapshotText>
         </configuration>
@@ -311,6 +311,7 @@
           <serverId>sonatype-nexus-staging</serverId>
           <nexusUrl>https://oss.sonatype.org/</nexusUrl>
           <autoReleaseAfterClose>true</autoReleaseAfterClose>
+          <stagingProfileId>c3a098f3fdc7d</stagingProfileId>
         </configuration>
       </plugin>
     </plugins>
