@@ -7,7 +7,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
-import java.util.regex.Pattern;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.maven.plugin.AbstractMojo;
@@ -47,9 +46,6 @@ import org.codehaus.plexus.util.cli.StreamConsumer;
       requiresProject = true,
       threadSafe = true)
 public class ReleaseMojo extends AbstractMojo {
-    private static final Pattern SNAPSHOT_PATTERN = Pattern.compile(
-            "^(.*-)?((?:SNAPSHOT)|(?:\\d{4}[0-1]\\d[0-3]\\d\\.[0-2]\\d[0-6]\\d[0-6]\\d-\\d+))$"
-    );
     private static final String REFS_TAGS = "refs/tags/";
     /**
      * The name of the property to populate with the release version.
@@ -61,7 +57,20 @@ public class ReleaseMojo extends AbstractMojo {
      */
     @Parameter(defaultValue = "developmentVersion")
     private String developmentProperty;
-
+    /**
+     * The name of the property to populate with the tag name.
+     *
+     * @since 1.29
+     */
+    @Parameter(defaultValue = "tag")
+    private String tagNameProperty;
+    /**
+     * When {@code true} will disable the check of whether setting {@code autoVersionSubmodules} makes sense.
+     *
+     * @since 1.29
+     */
+    @Parameter(property = "skipAutoVersionSubmodulesDetection")
+    private boolean skipAutoVersionSubmodulesDetection;
     /**
      * The text in the version to be replaced. Normally you will want {@code -SNAPSHOT} but if you are using a version
      * number that indicates replacement such as {@code 1.x-SNAPSHOT} then you may wany to use {@code x-SNAPSHOT} so
@@ -69,13 +78,19 @@ public class ReleaseMojo extends AbstractMojo {
      */
     @Parameter(defaultValue = "-SNAPSHOT", property = "snapshotText")
     private String snapshotText;
-
     /**
      * Disables querying the remote tags and instead only queries local tags.
      */
     @Parameter(property = "localTags")
     private boolean localTags;
-
+    /**
+     * Controls which SCM URL to prefer for querying, the {@code xpath:/project/scm/developerConnection} or the {@code
+     * xpath:/project/scm/connection}.
+     *
+     * @sinec 1.29
+     */
+    @Parameter(property = "preferDeveloperconnection", defaultValue = "true")
+    private boolean preferDeveloperConnection;
     /**
      * Format to use when generating the tag name if none is specified. Mirrors {@code release:prepare}'s property.
      */
@@ -86,9 +101,11 @@ public class ReleaseMojo extends AbstractMojo {
      */
     @Parameter(property = "releaseVersionFile")
     private File releaseVersionFile;
-
-    @Parameter(defaultValue = "${project.scm.developerConnection}", readonly = true)
-    private String scmDeveloperUrl;
+    /**
+     * If defined, the name of the file to populate with the suggested tag name followed by a newline.
+     */
+    @Parameter(property = "tagNameFile")
+    private File tagNameFile;
     /**
      * The character encoding scheme to be applied when writing files.
      */
@@ -100,6 +117,8 @@ public class ReleaseMojo extends AbstractMojo {
     private ScmManager scmManager;
     @Parameter(defaultValue = "${project.scm.connection}", readonly = true)
     private String scmUrl;
+    @Parameter(defaultValue = "${project.scm.developerConnection}", readonly = true)
+    private String scmDeveloperUrl;
     @Parameter(defaultValue = "${project}", readonly = true)
     private MavenProject project;
 
@@ -109,7 +128,9 @@ public class ReleaseMojo extends AbstractMojo {
             throw new MojoFailureException("The current project version is \'" + project.getVersion()
                     + "\' which does not end with the expected text to be replaced: \'" + snapshotText + "\'");
         }
-        String scmUrl = scmDeveloperUrl == null || scmDeveloperUrl.isEmpty() ? this.scmUrl : scmDeveloperUrl;
+        String scmUrl = preferDeveloperConnection
+                ? (scmDeveloperUrl == null || scmDeveloperUrl.isEmpty() ? this.scmUrl : scmDeveloperUrl)
+                : (this.scmUrl == null || this.scmUrl.isEmpty() ? scmDeveloperUrl : this.scmUrl);
         ScmRepository repository;
         try {
             // first check that we are using git
@@ -197,6 +218,7 @@ public class ReleaseMojo extends AbstractMojo {
                 }
             };
             String version;
+            String suggestedTagName;
             while (true) {
                 version = suggestedVersion.next();
                 Interpolator interpolator = new StringSearchInterpolator("@{", "}");
@@ -207,7 +229,6 @@ public class ReleaseMojo extends AbstractMojo {
                 values.setProperty("version", version);
                 interpolator.addValueSource(new PrefixedPropertiesValueSource(possiblePrefixes, values, true));
                 RecursionInterceptor recursionInterceptor = new PrefixAwareRecursionInterceptor(possiblePrefixes);
-                String suggestedTagName;
                 try {
                     suggestedTagName = interpolator.interpolate(tagNameFormat, recursionInterceptor);
                 } catch (InterpolationException e) {
@@ -224,26 +245,58 @@ public class ReleaseMojo extends AbstractMojo {
             }
             getLog().debug("Known tags: " + tags);
 
-            if (StringUtils.isNotBlank(releaseProperty)) {
-                getLog().info("Setting property '" + releaseProperty + "' to '" + version + "'");
-                project.getProperties().setProperty(releaseProperty, version);
+            // Ok let's set up the properties for release:prepare
+
+            // The release version
+            setProperty(releaseProperty, version);
+            writeFile(this.releaseVersionFile, version);
+
+            // The follow-on development version
+            setProperty(developmentProperty, project.getVersion());
+
+            // The tag
+            setProperty(this.tagNameProperty, suggestedTagName);
+            writeFile(this.tagNameFile, suggestedTagName);
+
+            // Now can we help and set autoVersionSubmodules?
+            if (skipAutoVersionSubmodulesDetection) {
+                getLog().debug("autoVersionSubmodules detection disabled");
+                return;
             }
-            if (StringUtils.isNotBlank(developmentProperty)) {
-                getLog().info("Setting property '" + developmentProperty + "' to '" + project.getVersion() + "'");
-                project.getProperties().setProperty(developmentProperty, project.getVersion());
+            if (!project.isExecutionRoot()) {
+                getLog().info("Project is not execution root, autoVersionSubmodules detection does not apply");
+                return;
             }
-            if (releaseVersionFile != null) {
-                releaseVersionFile.getParentFile().mkdirs();
-                getLog().info("Writing '" + version + "' to " + releaseVersionFile);
-                FileUtils.write(releaseVersionFile, version + "\n", encoding);
+            for (MavenProject p : project.getCollectedProjects()) {
+                if (!project.getVersion().equals(p.getVersion())) {
+                    getLog().warn("Reactor project " + p.getGroupId() + ":" + p.getArtifactId() + " has version "
+                            + p.getVersion() + " which is not the same as " + project.getVersion()
+                            + " thus autoVersionSubmodules cannot be assumed true");
+                    return;
+                }
             }
+            getLog().info("All reactor projects share the same version: " + project.getVersion());
+            setProperty("autoVersionSubmodules", "true");
         } catch (NoSuchScmProviderException e) {
             throw new MojoFailureException("Unknown SCM URL: " + scmUrl, e);
         } catch (ScmException | IOException e) {
             throw new MojoExecutionException(e.getMessage(), e);
         }
+    }
 
+    private void writeFile(File fileName, String value) throws IOException {
+        if (fileName != null) {
+            fileName.getParentFile().mkdirs();
+            getLog().info("Writing '" + value + "' to " + fileName);
+            FileUtils.write(fileName, value + "\n", encoding);
+        }
+    }
 
+    private void setProperty(String propertyName, String propertyValue) {
+        if (StringUtils.isNotBlank(propertyName)) {
+            getLog().info("Setting property '" + propertyName + "' to '" + propertyValue + "'");
+            project.getProperties().setProperty(propertyName, propertyValue);
+        }
     }
 
 

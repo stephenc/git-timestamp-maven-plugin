@@ -117,8 +117,14 @@ public class TimestampMojo extends AbstractMojo {
      */
     @Parameter
     private File versionFile;
-    @Parameter(defaultValue = "${project.scm.developerConnection}", readonly = true)
-    private String scmDeveloperUrl;
+    /**
+     * Controls which SCM URL to prefer for querying, the {@code xpath:/project/scm/developerConnection} or the {@code
+     * xpath:/project/scm/connection}.
+     *
+     * @sinec 1.29
+     */
+    @Parameter(property = "preferDeveloperconnection", defaultValue = "true")
+    private boolean preferDeveloperConnection;
     /**
      * The character encoding scheme to be applied when writing files.
      */
@@ -128,6 +134,8 @@ public class TimestampMojo extends AbstractMojo {
     private File basedir;
     @Component
     private ScmManager scmManager;
+    @Parameter(defaultValue = "${project.scm.developerConnection}", readonly = true)
+    private String scmDeveloperUrl;
     @Parameter(defaultValue = "${project.scm.connection}", readonly = true)
     private String scmUrl;
     @Parameter(defaultValue = "${project}", readonly = true)
@@ -135,7 +143,9 @@ public class TimestampMojo extends AbstractMojo {
 
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
-        String scmUrl = scmDeveloperUrl == null || scmDeveloperUrl.isEmpty() ? this.scmUrl : scmDeveloperUrl;
+        String scmUrl = preferDeveloperConnection
+                ? (scmDeveloperUrl == null || scmDeveloperUrl.isEmpty() ? this.scmUrl : scmDeveloperUrl)
+                : (this.scmUrl == null || this.scmUrl.isEmpty() ? scmDeveloperUrl : this.scmUrl);
         ScmRepository repository;
         try {
             // first check that we are using git
@@ -215,8 +225,5 @@ public class TimestampMojo extends AbstractMojo {
         } catch (ScmException | IOException e) {
             throw new MojoExecutionException(e.getMessage(), e);
         }
-
-
     }
-
 }
