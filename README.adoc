@@ -119,5 +119,5 @@ Will enable automatic version detection based on the current remote tags and the
 
 [source,bash]
 ----
-mvn git-timestamp:release release:prepare release:perform
+mvn git-timestamp:setup-release release:prepare release:perform
 ----
