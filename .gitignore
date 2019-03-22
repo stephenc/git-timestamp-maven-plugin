@@ -6,4 +6,9 @@
 *.iws
 .idea/
 target/
+.repository/
+release.properties
+pom.xml.releaseBackup
+.gnupg/
+TAG_NAME.txt
 
