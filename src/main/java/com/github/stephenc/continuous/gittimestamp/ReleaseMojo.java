@@ -172,7 +172,7 @@ public class ReleaseMojo extends AbstractMojo {
                     line.trim();
                     if (!line.isEmpty()) {
                         int index = line.indexOf(REFS_TAGS);
-                        if (index != -1 && line.matches("[0-9a-fA-F]{40}\\w+refs/tags/")) {
+                        if (index != -1 && line.matches("^[0-9a-fA-F]{40}\\s+refs/tags/.*$")) {
                             if (line.endsWith("{}")) {
                                 line = line.substring(0, line.length() - 2);
                             }
