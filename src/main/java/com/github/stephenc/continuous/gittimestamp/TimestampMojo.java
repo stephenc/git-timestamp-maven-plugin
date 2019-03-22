@@ -21,27 +21,20 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
-import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
-import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.project.MavenProject;
 import org.apache.maven.scm.ScmException;
 import org.apache.maven.scm.ScmFile;
 import org.apache.maven.scm.ScmFileSet;
 import org.apache.maven.scm.command.status.StatusScmResult;
 import org.apache.maven.scm.manager.NoSuchScmProviderException;
-import org.apache.maven.scm.manager.ScmManager;
 import org.apache.maven.scm.provider.ScmProvider;
 import org.apache.maven.scm.provider.git.gitexe.command.GitCommandLineUtils;
-import org.apache.maven.scm.provider.git.repository.GitScmProviderRepository;
 import org.apache.maven.scm.repository.ScmRepository;
-import org.codehaus.plexus.util.cli.CommandLineUtils;
 import org.codehaus.plexus.util.cli.Commandline;
 import org.codehaus.plexus.util.cli.StreamConsumer;
 
@@ -54,7 +47,7 @@ import org.codehaus.plexus.util.cli.StreamConsumer;
       defaultPhase = LifecyclePhase.INITIALIZE,
       requiresProject = true,
       threadSafe = true)
-public class TimestampMojo extends AbstractMojo {
+public class TimestampMojo extends AbstractGitOpsMojo {
     private static final SimpleDateFormat TIMESTAMP_FORMAT = new SimpleDateFormat("yyyyMMdd.HHmmss");
     private static final Pattern SNAPSHOT_PATTERN = Pattern.compile(
             "^(.*-)?((?:SNAPSHOT)|(?:\\d{4}[0-1]\\d[0-3]\\d\\.[0-2]\\d[0-6]\\d[0-6]\\d-\\d+))$"
@@ -118,74 +111,59 @@ public class TimestampMojo extends AbstractMojo {
     @Parameter
     private File versionFile;
     /**
-     * Controls which SCM URL to prefer for querying, the {@code xpath:/project/scm/developerConnection} or the {@code
-     * xpath:/project/scm/connection}.
+     * Set this property to {@code true} to inject the commit count prior to the {@link #snapshotText} in snapshot
+     * versions. Normally, only the {@code SNAPSHOT} part of the project version is replaced by the timestamp, this is
+     * because such a substitution will be idempotent under the Maven version number parsing rules (as {@code
+     * 1-SNAPSHOT} is considered the same as {@code 1-20190322.100407-39}). Setting this property to {@code true} means
+     * that the commit count will also be injected so that we would have either {@code 1.39-20190322.100407-39}
+     * (no modified files in the workspace) or {@code 1.40-20190322.100407-39} (modified files in the workspace) as the
+     * version. In other words, setting this property to {@code true} will mean that the version honours the expected
+     * release version that would be produced by {@link ReleaseMojo} while also reflecting the fact that this version
+     * is only a SNAPSHOT on the road to that release.
+     * <br/>
+     * <b>NOTE:</b> Maven will not recognise a version output as being equivalent to the project version when this
+     * property is set to {@code true}, but if you are using this version in your own code it may be useful.
      *
-     * @sinec 1.29
+     * @since 1.39
      */
-    @Parameter(property = "preferDeveloperconnection", defaultValue = "true")
-    private boolean preferDeveloperConnection;
+    @Parameter(defaultValue = "false", property = "versionIncludesCommitCount")
+    private boolean versionIncludesCommitCount;
     /**
-     * The character encoding scheme to be applied when writing files.
+     * If {@link #versionIncludesCommitCount} is {@code true} then this is the text in the version to be replaced by
+     * the commit count. Normally you will want {@code -SNAPSHOT} but if you are using a version number that
+     * indicates replacement such as {@code 1.x-SNAPSHOT} then you may want to use {@code x-SNAPSHOT} so
+     * that the {@code x} is replaced.
      */
-    @Parameter(defaultValue = "${project.build.outputEncoding}")
-    protected String encoding;
-    @Parameter(defaultValue = "${basedir}", readonly = true)
-    private File basedir;
-    @Component
-    private ScmManager scmManager;
-    @Parameter(defaultValue = "${project.scm.developerConnection}", readonly = true)
-    private String scmDeveloperUrl;
-    @Parameter(defaultValue = "${project.scm.connection}", readonly = true)
-    private String scmUrl;
-    @Parameter(defaultValue = "${project}", readonly = true)
-    private MavenProject project;
+    @Parameter(defaultValue = "-SNAPSHOT", property = "snapshotText")
+    private String snapshotText;
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
-        String scmUrl = preferDeveloperConnection
-                ? (scmDeveloperUrl == null || scmDeveloperUrl.isEmpty() ? this.scmUrl : scmDeveloperUrl)
-                : (this.scmUrl == null || this.scmUrl.isEmpty() ? scmDeveloperUrl : this.scmUrl);
-        ScmRepository repository;
         try {
             // first check that we are using git
-            repository = scmManager.makeScmRepository(scmUrl);
-            ScmProvider provider = scmManager.getProviderByRepository(repository);
-            if (!GitScmProviderRepository.PROTOCOL_GIT.equals(provider.getScmType())) {
-                throw new MojoFailureException("Only Git SCM type is supported");
-            }
+            ScmRepository repository = getScmRepository();
+            ScmProvider provider = getValidatedScmProvider(repository);
 
             // now get the last modified timestamp
             final long[] lastModified = new long[1];
             lastModified[0] = project.getFile().lastModified();
             Commandline cl = GitCommandLineUtils.getBaseGitCommandLine(basedir, "ls-files");
-            CommandLineUtils.StringStreamConsumer stderr = new CommandLineUtils.StringStreamConsumer();
             GitCommandLineUtils.execute(cl, new StreamConsumer() {
                 @Override
                 public void consumeLine(String s) {
                     lastModified[0] = Math.max(lastModified[0], new File(basedir, s).lastModified());
                 }
-            }, new CommandLineUtils.StringStreamConsumer(), new ScmLoggerImpl(this));
+            }, logErrorsConsumer(), new GitCommandLineLogger(this));
             StatusScmResult status = provider.status(repository, new ScmFileSet(basedir));
             for (ScmFile f: status.getChangedFiles()) {
                 lastModified[0] = Math.max(lastModified[0], new File(basedir, f.getPath()).lastModified());
             }
 
             // now count how many commits on the current branch
-            cl = GitCommandLineUtils.getBaseGitCommandLine(basedir, "rev-list");
-            cl.createArg().setValue("--count");
-            cl.createArg().setValue("HEAD");
-            CommandLineUtils.StringStreamConsumer countOutput = new CommandLineUtils.StringStreamConsumer();
-            GitCommandLineUtils.execute(cl, countOutput, stderr, new ScmLoggerImpl(this));
-            long count;
-            try {
-                count = Long.parseLong(StringUtils.defaultIfBlank(countOutput.getOutput().trim(), "0"));
-            } catch (NumberFormatException e) {
-                throw new MojoExecutionException(
-                        "Could not parse revision count from 'rev-list --count' output: " + countOutput.getOutput(),
-                        e
-                );
-            }
+            long count = getCurrentBranchCommitCount();
 
             // ok, let's create the timestamp
             String timestamp = TIMESTAMP_FORMAT.format(new Date(lastModified[0])) + "-" + count;
@@ -193,7 +171,25 @@ public class TimestampMojo extends AbstractMojo {
             Matcher matcher = SNAPSHOT_PATTERN.matcher(version);
             if (matcher.matches()) {
                 if (versionTimestampSnapshots) {
-                    version = matcher.group(1) + timestamp;
+                    String bareVersion;
+                    if (versionIncludesCommitCount) {
+                        String snapshotVersion = matcher.group(1) + "SNAPSHOT";
+                        if (StringUtils.endsWith(snapshotVersion, snapshotText)) {
+                            bareVersion = StringUtils.removeEnd(snapshotVersion, snapshotText);
+                            if (!bareVersion.endsWith(".") && !bareVersion.endsWith("-")) {
+                                // insert a separator if none present
+                                bareVersion = bareVersion + ".";
+                            }
+                            bareVersion = bareVersion + (count + (status.getChangedFiles().isEmpty() ? 0 : 1)) + '-';
+                        } else {
+                            getLog().warn("Project version '" + version + "' normalized to '" + snapshotVersion
+                                    + "' does not end with '" + snapshotText + "'");
+                            bareVersion = matcher.group(1);
+                        }
+                    } else {
+                        bareVersion = matcher.group(1);
+                    }
+                    version = bareVersion + timestamp;
                 }
             } else {
                 if (versionTimestampReleases) {
@@ -202,28 +198,15 @@ public class TimestampMojo extends AbstractMojo {
             }
             getLog().info("Timestamp: " + timestamp);
             getLog().info("Version:   " + version);
-            if (StringUtils.isNotBlank(timestampProperty)) {
-                getLog().info("Setting property '" + timestampProperty + "' to '" + timestamp + "'");
-                project.getProperties().setProperty(timestampProperty, timestamp);
-            }
-            if (StringUtils.isNotBlank(versionProperty)) {
-                getLog().info("Setting property '" + versionProperty + "' to '" + version + "'");
-                project.getProperties().setProperty(versionProperty, version);
-            }
-            if (timestampFile != null) {
-                timestampFile.getParentFile().mkdirs();
-                getLog().info("Writing '" + timestamp + "' to " + timestampFile);
-                FileUtils.write(timestampFile, timestamp + "\n", encoding);
-            }
-            if (versionFile != null) {
-                versionFile.getParentFile().mkdirs();
-                getLog().info("Writing '" + version + "' to " + versionFile);
-                FileUtils.write(versionFile, version + "\n", encoding);
-            }
+            setProperty(timestampProperty, timestamp);
+            writeFile(timestampFile, timestamp);
+            setProperty(versionProperty, version);
+            writeFile(versionFile, version);
         } catch (NoSuchScmProviderException e) {
             throw new MojoFailureException("Unknown SCM URL: " + scmUrl, e);
         } catch (ScmException | IOException e) {
             throw new MojoExecutionException(e.getMessage(), e);
         }
     }
+
 }

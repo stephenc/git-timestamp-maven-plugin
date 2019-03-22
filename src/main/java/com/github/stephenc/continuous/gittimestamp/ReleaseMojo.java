@@ -2,25 +2,21 @@ package com.github.stephenc.continuous.gittimestamp;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
-import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
-import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.scm.ScmException;
 import org.apache.maven.scm.manager.NoSuchScmProviderException;
-import org.apache.maven.scm.manager.ScmManager;
-import org.apache.maven.scm.provider.ScmProvider;
 import org.apache.maven.scm.provider.git.gitexe.command.GitCommandLineUtils;
 import org.apache.maven.scm.provider.git.repository.GitScmProviderRepository;
 import org.apache.maven.scm.repository.ScmRepository;
@@ -30,7 +26,6 @@ import org.codehaus.plexus.interpolation.PrefixAwareRecursionInterceptor;
 import org.codehaus.plexus.interpolation.PrefixedPropertiesValueSource;
 import org.codehaus.plexus.interpolation.RecursionInterceptor;
 import org.codehaus.plexus.interpolation.StringSearchInterpolator;
-import org.codehaus.plexus.util.cli.CommandLineUtils;
 import org.codehaus.plexus.util.cli.Commandline;
 import org.codehaus.plexus.util.cli.StreamConsumer;
 
@@ -38,14 +33,15 @@ import org.codehaus.plexus.util.cli.StreamConsumer;
  * Generates a release version based on the number of commits in the current Git branch and available tags. This mojo is
  * designed to be invoked before {@code release:prepare}.
  *
- * @since 1.2
+ * @since 1.39
  */
-@Mojo(name = "release",
+@Mojo(name = "setup-release",
+      inheritByDefault = false,
       aggregator = true,
       defaultPhase = LifecyclePhase.INITIALIZE,
       requiresProject = true,
       threadSafe = true)
-public class ReleaseMojo extends AbstractMojo {
+public class ReleaseMojo extends AbstractGitOpsMojo {
     private static final String REFS_TAGS = "refs/tags/";
     /**
      * The name of the property to populate with the release version.
@@ -72,9 +68,27 @@ public class ReleaseMojo extends AbstractMojo {
     @Parameter(property = "skipAutoVersionSubmodulesDetection")
     private boolean skipAutoVersionSubmodulesDetection;
     /**
+     * By default, the first attempt at any revision version will have the {@code .0} implicit, only for repeats do we
+     * add the {@code .1}, {@code .2}, etc in order to disambiguate, setting this property to {@code true} will disable
+     * the special casing for {@code .0} and thus it will always be present. For example, if the project version is
+     * {@code 1-SNAPSHOT} and there are 57 commits on the current branch:
+     * <dl>
+     * <dt>{@code skipAutoVersionSubmodulesDetection == false}</dt>
+     * <dd>The candidate versions will be:
+     * <ul><li>1.57</li><li>1.57.1</li><li>1.57.2</li><li>1.57.3</li><li>...</li></ul></dd>
+     * <dt>{@code skipAutoVersionSubmodulesDetection == true}</dt>
+     * <dd>The candidate versions will be:
+     * <ul><li>1.57.0</li><li>1.57.1</li><li>1.57.2</li><li>1.57.3</li><li>...</li></ul></dd>
+     * </dl>
+     *
+     * @since 1.39
+     */
+    @Parameter(property = "alwaysIncludeRepeatCount")
+    private boolean alwaysIncludeRepeatCount;
+    /**
      * The text in the version to be replaced. Normally you will want {@code -SNAPSHOT} but if you are using a version
-     * number that indicates replacement such as {@code 1.x-SNAPSHOT} then you may wany to use {@code x-SNAPSHOT} so
-     * that the {@code x} is replaced
+     * number that indicates replacement such as {@code 1.x-SNAPSHOT} then you may want to use {@code x-SNAPSHOT} so
+     * that the {@code x} is replaced.
      */
     @Parameter(defaultValue = "-SNAPSHOT", property = "snapshotText")
     private String snapshotText;
@@ -83,14 +97,6 @@ public class ReleaseMojo extends AbstractMojo {
      */
     @Parameter(property = "localTags")
     private boolean localTags;
-    /**
-     * Controls which SCM URL to prefer for querying, the {@code xpath:/project/scm/developerConnection} or the {@code
-     * xpath:/project/scm/connection}.
-     *
-     * @sinec 1.29
-     */
-    @Parameter(property = "preferDeveloperconnection", defaultValue = "true")
-    private boolean preferDeveloperConnection;
     /**
      * Format to use when generating the tag name if none is specified. Mirrors {@code release:prepare}'s property.
      */
@@ -106,84 +112,38 @@ public class ReleaseMojo extends AbstractMojo {
      */
     @Parameter(property = "tagNameFile")
     private File tagNameFile;
-    /**
-     * The character encoding scheme to be applied when writing files.
-     */
-    @Parameter(defaultValue = "${project.build.outputEncoding}")
-    protected String encoding;
-    @Parameter(defaultValue = "${basedir}", readonly = true)
-    private File basedir;
-    @Component
-    private ScmManager scmManager;
-    @Parameter(defaultValue = "${project.scm.connection}", readonly = true)
-    private String scmUrl;
-    @Parameter(defaultValue = "${project.scm.developerConnection}", readonly = true)
-    private String scmDeveloperUrl;
-    @Parameter(defaultValue = "${project}", readonly = true)
-    private MavenProject project;
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
         if (!project.getVersion().endsWith(snapshotText)) {
             throw new MojoFailureException("The current project version is \'" + project.getVersion()
                     + "\' which does not end with the expected text to be replaced: \'" + snapshotText + "\'");
         }
-        String scmUrl = preferDeveloperConnection
-                ? (scmDeveloperUrl == null || scmDeveloperUrl.isEmpty() ? this.scmUrl : scmDeveloperUrl)
-                : (this.scmUrl == null || this.scmUrl.isEmpty() ? scmDeveloperUrl : this.scmUrl);
-        ScmRepository repository;
         try {
-            // first check that we are using git
-            repository = scmManager.makeScmRepository(scmUrl);
-            final ScmProvider provider = scmManager.getProviderByRepository(repository);
-            if (!GitScmProviderRepository.PROTOCOL_GIT.equals(provider.getScmType())) {
-                throw new MojoFailureException("Only Git SCM type is supported");
-            }
-            CommandLineUtils.StringStreamConsumer stderr = new CommandLineUtils.StringStreamConsumer();
+            ScmRepository repository = getScmRepository();
+            getValidatedScmProvider(repository);
+
             // now count how many commits on the current branch
-            Commandline cl = GitCommandLineUtils.getBaseGitCommandLine(basedir, "rev-list");
-            cl.createArg().setValue("--count");
-            cl.createArg().setValue("HEAD");
-            CommandLineUtils.StringStreamConsumer countOutput = new CommandLineUtils.StringStreamConsumer();
-            GitCommandLineUtils.execute(cl, countOutput, stderr, new ScmLoggerImpl(this));
-            final long count;
-            try {
-                count = Long.parseLong(StringUtils.defaultIfBlank(countOutput.getOutput().trim(), "0"));
-            } catch (NumberFormatException e) {
-                throw new MojoExecutionException(
-                        "Could not parse revision count from 'rev-list --count' output: " + countOutput.getOutput(),
-                        e
-                );
-            }
+            final long count = getCurrentBranchCommitCount();
 
             final Set<String> tags = new HashSet<>();
+            Commandline cl;
+            StreamConsumer consumer;
             if (!localTags && repository.getProviderRepository() instanceof GitScmProviderRepository) {
                 cl = GitCommandLineUtils.getBaseGitCommandLine(basedir, "ls-remote");
                 cl.createArg().setValue("--tags");
                 cl.createArg().setValue("--quiet");
                 cl.createArg().setValue(((GitScmProviderRepository) repository.getProviderRepository()).getFetchUrl());
+                consumer = new LsRemoteTagsConsumer(tags);
             } else {
                 cl = GitCommandLineUtils.getBaseGitCommandLine(basedir, "tag");
                 cl.createArg().setValue("--list");
+                consumer = new TagListConsumer(tags);
             }
-            StreamConsumer consumer = new StreamConsumer() {
-                @Override
-                public void consumeLine(String line) {
-                    line.trim();
-                    if (!line.isEmpty()) {
-                        int index = line.indexOf(REFS_TAGS);
-                        if (index != -1 && line.matches("^[0-9a-fA-F]{40}\\s+refs/tags/.*$")) {
-                            if (line.endsWith("{}")) {
-                                line = line.substring(0, line.length() - 2);
-                            }
-                            tags.add(line.substring(index + REFS_TAGS.length()));
-                        } else {
-                            tags.add(line);
-                        }
-                    }
-                }
-            };
-            GitCommandLineUtils.execute(cl, consumer, stderr, new ScmLoggerImpl(this));
+            GitCommandLineUtils.execute(cl, consumer, logErrorsConsumer(), new GitCommandLineLogger(this));
 
             String bareVersion = StringUtils.removeEnd(project.getVersion(), snapshotText);
             if (!bareVersion.endsWith(".") && !bareVersion.endsWith("-")) {
@@ -191,50 +151,12 @@ public class ReleaseMojo extends AbstractMojo {
                 bareVersion = bareVersion + ".";
             }
             final String baseVersion = bareVersion + count;
-            Iterator<String> suggestedVersion = new Iterator<String>() {
-
-                private long patch;
-
-                @Override
-                public boolean hasNext() {
-                    return true;
-                }
-
-                @Override
-                public String next() {
-                    try {
-                        if (patch == 0) {
-                            return baseVersion;
-                        }
-                        return baseVersion + "." + patch;
-                    } finally {
-                        patch++;
-                    }
-                }
-
-                @Override
-                public void remove() {
-                    throw new UnsupportedOperationException();
-                }
-            };
+            Iterator<String> suggestedVersion = new CandidateVersionsIterator(baseVersion, alwaysIncludeRepeatCount);
             String version;
             String suggestedTagName;
             while (true) {
                 version = suggestedVersion.next();
-                Interpolator interpolator = new StringSearchInterpolator("@{", "}");
-                List<String> possiblePrefixes = java.util.Arrays.asList("project", "pom");
-                Properties values = new Properties();
-                values.setProperty("artifactId", project.getArtifactId());
-                values.setProperty("groupId", project.getGroupId());
-                values.setProperty("version", version);
-                interpolator.addValueSource(new PrefixedPropertiesValueSource(possiblePrefixes, values, true));
-                RecursionInterceptor recursionInterceptor = new PrefixAwareRecursionInterceptor(possiblePrefixes);
-                try {
-                    suggestedTagName = interpolator.interpolate(tagNameFormat, recursionInterceptor);
-                } catch (InterpolationException e) {
-                    throw new MojoExecutionException(
-                            "Could not interpolate specified tag name format: " + tagNameFormat, e);
-                }
+                suggestedTagName = tagNameFromVersion(version);
 
                 if (!tags.contains(suggestedTagName)) {
                     getLog().info(
@@ -284,20 +206,90 @@ public class ReleaseMojo extends AbstractMojo {
         }
     }
 
-    private void writeFile(File fileName, String value) throws IOException {
-        if (fileName != null) {
-            fileName.getParentFile().mkdirs();
-            getLog().info("Writing '" + value + "' to " + fileName);
-            FileUtils.write(fileName, value + "\n", encoding);
+    private String tagNameFromVersion(String version) throws MojoExecutionException {
+        Interpolator interpolator = new StringSearchInterpolator("@{", "}");
+        List<String> possiblePrefixes = Arrays.asList("project", "pom");
+        Properties values = new Properties();
+        values.setProperty("artifactId", project.getArtifactId());
+        values.setProperty("groupId", project.getGroupId());
+        values.setProperty("version", version);
+        interpolator.addValueSource(new PrefixedPropertiesValueSource(possiblePrefixes, values, true));
+        RecursionInterceptor recursionInterceptor = new PrefixAwareRecursionInterceptor(possiblePrefixes);
+        try {
+            return interpolator.interpolate(tagNameFormat, recursionInterceptor);
+        } catch (InterpolationException e) {
+            throw new MojoExecutionException(
+                    "Could not interpolate specified tag name format: " + tagNameFormat, e);
         }
     }
 
-    private void setProperty(String propertyName, String propertyValue) {
-        if (StringUtils.isNotBlank(propertyName)) {
-            getLog().info("Setting property '" + propertyName + "' to '" + propertyValue + "'");
-            project.getProperties().setProperty(propertyName, propertyValue);
+
+    private static class CandidateVersionsIterator implements Iterator<String> {
+
+        private final String baseVersion;
+        private final boolean alwaysIncludeRepeatCount;
+        private long patch;
+
+        public CandidateVersionsIterator(String baseVersion, boolean alwaysIncludeRepeatCount) {
+            this.baseVersion = baseVersion;
+            this.alwaysIncludeRepeatCount = alwaysIncludeRepeatCount;
+        }
+
+        @Override
+        public boolean hasNext() {
+            return true;
+        }
+
+        @Override
+        public String next() {
+            try {
+                return alwaysIncludeRepeatCount || patch > 0 ? baseVersion + "." + patch : baseVersion;
+            } finally {
+                patch++;
+            }
+        }
+
+        @Override
+        public void remove() {
+            throw new UnsupportedOperationException();
         }
     }
 
+    private static class TagListConsumer implements StreamConsumer {
+        private final Set<String> tags;
 
+        public TagListConsumer(Set<String> tags) {
+            this.tags = tags;
+        }
+
+        @Override
+        public void consumeLine(String line) {
+            line.trim();
+            if (!line.isEmpty()) {
+                tags.add(line);
+            }
+        }
+    }
+
+    private static class LsRemoteTagsConsumer implements StreamConsumer {
+        private final Set<String> tags;
+
+        public LsRemoteTagsConsumer(Set<String> tags) {
+            this.tags = tags;
+        }
+
+        @Override
+        public void consumeLine(String line) {
+            line.trim();
+            if (!line.isEmpty()) {
+                int index = line.indexOf(REFS_TAGS);
+                if (index != -1 && line.matches("^[0-9a-fA-F]{40}\\s+refs/tags/.*$")) {
+                    if (line.endsWith("{}")) {
+                        line = line.substring(0, line.length() - 2);
+                    }
+                    tags.add(line.substring(index + REFS_TAGS.length()));
+                }
+            }
+        }
+    }
 }

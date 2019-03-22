@@ -6,11 +6,11 @@ import org.apache.maven.scm.log.ScmLogger;
 /**
  * Log adapter.
  */
-class ScmLoggerImpl implements ScmLogger {
+class GitCommandLineLogger implements ScmLogger {
 
     private AbstractMojo mojo;
 
-    public ScmLoggerImpl(AbstractMojo mojo) {
+    public GitCommandLineLogger(AbstractMojo mojo) {
         this.mojo = mojo;
     }
 
