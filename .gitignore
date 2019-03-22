@@ -11,4 +11,5 @@ release.properties
 pom.xml.releaseBackup
 .gnupg/
 TAG_NAME.txt
+VERSION.txt
 
