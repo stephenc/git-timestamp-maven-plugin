@@ -319,7 +319,7 @@
         <version>1.40</version>
         <configuration>
           <snapshotText>x-SNAPSHOT</snapshotText>
-          <versionFile>VERSION.txt</versionFile>
+          <releaseVersionFile>VERSION.txt</releaseVersionFile>
           <tagNameFile>TAG_NAME.txt</tagNameFile>
           <preferDeveloperConnection>false</preferDeveloperConnection>
         </configuration>
