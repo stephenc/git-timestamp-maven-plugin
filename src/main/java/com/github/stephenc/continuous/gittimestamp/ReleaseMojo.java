@@ -143,7 +143,7 @@ public class ReleaseMojo extends AbstractGitOpsMojo {
                 cl.createArg().setValue("--list");
                 consumer = new TagListConsumer(tags);
             }
-            GitCommandLineUtils.execute(cl, consumer, logErrorsConsumer(), new GitCommandLineLogger(this));
+            GitCommandLineUtils.execute(cl, consumer, logWarnConsumer(), new GitCommandLineLogger(this));
 
             String bareVersion = StringUtils.removeEnd(project.getVersion(), snapshotText);
             if (!bareVersion.endsWith(".") && !bareVersion.endsWith("-")) {

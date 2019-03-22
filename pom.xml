@@ -262,7 +262,6 @@
         </executions>
       </plugin>
       <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-invoker-plugin</artifactId>
         <executions>
           <execution>
@@ -292,6 +291,14 @@
             <repository.proxy.url>${repository.proxy.url}</repository.proxy.url>
           </filterProperties>
           <mavenOpts>-Xmx256m</mavenOpts>
+        </configuration>
+      </plugin>
+      <plugin>
+        <artifactId>maven-release-plugin</artifactId>
+        <configuration>
+          <localCheckout>true</localCheckout>
+          <pushChanges>false</pushChanges>
+          <preparationGoals>validate</preparationGoals>
         </configuration>
       </plugin>
       <plugin>

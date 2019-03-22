@@ -29,7 +29,7 @@ public abstract class AbstractGitOpsMojo extends AbstractMojo {
      * Controls which SCM URL to prefer for querying, the {@code xpath:/project/scm/developerConnection} or the {@code
      * xpath:/project/scm/connection}.
      *
-     * @sinec 1.29
+     * @since 1.29
      */
     @Parameter(property = "preferDeveloperconnection", defaultValue = "true")
     protected boolean preferDeveloperConnection;
@@ -70,7 +70,7 @@ public abstract class AbstractGitOpsMojo extends AbstractMojo {
         cl.createArg().setValue("--count");
         cl.createArg().setValue("HEAD");
         CommandLineUtils.StringStreamConsumer countOutput = new CommandLineUtils.StringStreamConsumer();
-        GitCommandLineUtils.execute(cl, countOutput, logErrorsConsumer(), new GitCommandLineLogger(this));
+        GitCommandLineUtils.execute(cl, countOutput, logWarnConsumer(), new GitCommandLineLogger(this));
         try {
             return Long.parseLong(StringUtils.defaultIfBlank(countOutput.getOutput().trim(), "0"));
         } catch (NumberFormatException e) {
@@ -97,12 +97,30 @@ public abstract class AbstractGitOpsMojo extends AbstractMojo {
         return provider;
     }
 
-    protected CommandLineUtils.StringStreamConsumer logErrorsConsumer() {
+    protected CommandLineUtils.StringStreamConsumer logWarnConsumer() {
         return new CommandLineUtils.StringStreamConsumer() {
             @Override
             public void consumeLine(String line) {
                 super.consumeLine(line);
                 getLog().warn(line);
+            }
+        };
+    }
+    protected CommandLineUtils.StringStreamConsumer logInfoConsumer() {
+        return new CommandLineUtils.StringStreamConsumer() {
+            @Override
+            public void consumeLine(String line) {
+                super.consumeLine(line);
+                getLog().info(line);
+            }
+        };
+    }
+    protected CommandLineUtils.StringStreamConsumer logDebugConsumer() {
+        return new CommandLineUtils.StringStreamConsumer() {
+            @Override
+            public void consumeLine(String line) {
+                super.consumeLine(line);
+                getLog().debug(line);
             }
         };
     }

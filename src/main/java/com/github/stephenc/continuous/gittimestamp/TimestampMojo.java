@@ -156,7 +156,7 @@ public class TimestampMojo extends AbstractGitOpsMojo {
                 public void consumeLine(String s) {
                     lastModified[0] = Math.max(lastModified[0], new File(basedir, s).lastModified());
                 }
-            }, logErrorsConsumer(), new GitCommandLineLogger(this));
+            }, logDebugConsumer(), new GitCommandLineLogger(this));
             StatusScmResult status = provider.status(repository, new ScmFileSet(basedir));
             for (ScmFile f: status.getChangedFiles()) {
                 lastModified[0] = Math.max(lastModified[0], new File(basedir, f.getPath()).lastModified());
