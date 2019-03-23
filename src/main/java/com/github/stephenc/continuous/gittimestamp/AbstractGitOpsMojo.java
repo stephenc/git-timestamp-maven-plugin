@@ -42,6 +42,16 @@ import org.codehaus.plexus.util.cli.Commandline;
  */
 public abstract class AbstractGitOpsMojo extends AbstractMojo {
     /**
+     * The commit, branch or tag name to use as the "zero" revision. Helpful if you want to reset numbering for a
+     * branch, e.g. if you move from {@code 1.x} to {@code 2.x} you may want the {@code x} numbers for {@code 2.x} to
+     * restart, in which case on the {@code 2.x} branch you would specify the first commit in {@code 2.x} as the {@link
+     * #referenceCommit}.
+     *
+     * @since 1.47
+     */
+    @Parameter
+    protected String referenceCommit;
+    /**
      * Controls which SCM URL to prefer for querying, the {@code xpath:/project/scm/developerConnection} or the {@code
      * xpath:/project/scm/connection}.
      *
@@ -84,7 +94,11 @@ public abstract class AbstractGitOpsMojo extends AbstractMojo {
             throws ScmException, MojoExecutionException {
         Commandline cl = GitCommandLineUtils.getBaseGitCommandLine(basedir, "rev-list");
         cl.createArg().setValue("--count");
-        cl.createArg().setValue("HEAD");
+        if (StringUtils.isBlank(referenceCommit)) {
+            cl.createArg().setValue("HEAD");
+        } else {
+            cl.createArg().setValue(referenceCommit + "..HEAD");
+        }
         CommandLineUtils.StringStreamConsumer countOutput = new CommandLineUtils.StringStreamConsumer();
         GitCommandLineUtils.execute(cl, countOutput, logWarnConsumer(), new GitCommandLineLogger(this));
         try {
